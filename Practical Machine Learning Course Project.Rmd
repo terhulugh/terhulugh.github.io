@@ -1,0 +1,150 @@
+---
+title: "Practical Machine Learning Project"
+author: "Terhemen Hulugh"
+date: "2024-03-25"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# I Overview
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The data consists of a Training data and Testing data.
+
+The goal of this project is to predict the manner in which they did the exercise, that is the “classe” variable in the training set. 
+The dataset was cleaned and the remaining variables were used for the prediction exercise using 3 prediction models.
+The model with the best accuracy rate was applied to the 20 test cases available in the testing data.
+
+Note: The dataset used in this project is a courtesy of “Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements”
+
+# II Load Relevant Libraries
+```{r, warning=FALSE, message=FALSE}
+rm(list=ls())   # free up memory for the download of the data sets
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+```
+
+# III Getting, Cleaning and Exploring Data
+```{r, warning=FALSE, message=FALSE}
+# set the URL for the download of Training and Testing Dataset
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download the Training and Testing datasets
+training <- read.csv(url(urlTrain))
+testing  <- read.csv(url(urlTest))
+dim(training)
+dim(testing)
+
+# create a validation dataset from the training dataset 
+in_train  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+train_data <- training[in_train, ]
+valid_data  <- training[-in_train, ]
+dim(train_data)
+dim(valid_data)
+
+#Remove variables with little impact on outcome of Classe
+train_data <- train_data[, -c(1:7)]
+valid_data <- valid_data[, -c(1:7)]
+dim(train_data)
+dim(valid_data)
+
+# remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(train_data)
+train_data <- train_data[, -NZV]
+valid_data  <- valid_data[, -NZV]
+dim(train_data)
+dim(valid_data)
+
+#Remove variables containing missing values
+train_data<- train_data[, colSums(is.na(train_data)) == 0]
+valid_data <- valid_data[, colSums(is.na(valid_data)) == 0]
+dim(train_data)
+dim(valid_data)
+
+# Plot correlation between variables to explore relationships
+cor_matrix <- cor(train_data[, -53])
+corrplot(cor_matrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+
+# Identify highly correlated variables at a cutoff of 70%
+highly_correlated = findCorrelation(cor_matrix, cutoff=0.7)
+names(train_data)[highly_correlated]
+```
+
+# IV Prediction Model Building
+Three methods will be applied in the model building process using the training dataset. The model with the highest accuracy rate will be selected and applied to the testing dataset for the predictions. 
+The methods used for model building are: Decision Tree, Random Forest and Generalized Boosted Model as presented below.
+
+## a. Decision Tree Method
+
+```{r, warning=FALSE, message=FALSE}
+# model fit
+set.seed(12345)
+modFitDecTree <- rpart(classe ~ ., data=train_data, method="class")
+fancyRpartPlot(modFitDecTree)
+
+# prediction on Validation dataset
+predictDecTree <- predict(modFitDecTree, newdata=valid_data, type="class")
+confMatDecTree <- confusionMatrix(predictDecTree, as.factor(valid_data$classe))
+confMatDecTree
+
+# plot matrix results
+plot(confMatDecTree$table, col = confMatDecTree$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(confMatDecTree$overall['Accuracy'], 4)))
+```
+
+## b. Random Forest Method
+```{r, warning=FALSE, message=FALSE}
+# model fit
+set.seed(12345)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=train_data, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+
+# prediction on validation dataset
+predictRandForest <- predict(modFitRandForest, newdata=valid_data)
+confMatRandForest <- confusionMatrix(predictRandForest, as.factor(valid_data$classe))
+confMatRandForest
+
+# plot matrix results
+plot(confMatRandForest$table, col = confMatRandForest$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRandForest$overall['Accuracy'], 4)))
+```
+
+## c. Generalized Boosted Model
+```{r, warning=FALSE, message=FALSE}
+# model fit
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=train_data, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modFitGBM$finalModel
+
+# prediction on validation dataset
+predictGBM <- predict(modFitGBM, newdata=valid_data)
+confMatGBM <- confusionMatrix(predictGBM, as.factor(valid_data$classe))
+confMatGBM
+
+# plot matrix results
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("GBM - Accuracy =", round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+# V. Applying the Selected Model to the Testing Dataset
+The results from the above prediction methods show that Random Forest model has the highest accuracy rate with over 99%. Hence, the Random Forest Model will be applied to predict the 20 quiz results using the testing dataset as shown below.
+
+```{r, warning=FALSE, message=FALSE}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+```
